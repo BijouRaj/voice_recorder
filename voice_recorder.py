@@ -20,15 +20,20 @@ class VoiceRecorder:
         master.title("Voice Recorder")
         
         self.freq = 44100
-        self.duration = 5
+        #self.duration = 5
         self.channels = 2
-        self.recording = None 
+        self.recording = []
+        self.is_recording = False 
+        self.stream = None 
         
-        self.label = tk.Label(master, text="Press 'Record' to start recording.")
+        self.label = tk.Label(master, text="Click 'Start' to start recording.")
         self.label.pack(pady=10)
         
-        self.record_button = tk.Button(master, text="Record", command=self.start_recording)
-        self.record_button.pack(pady=5)
+        self.start_button = tk.Button(master, text="Start Recording", command=self.start_recording)
+        self.start_button.pack(pady=5)
+        
+        self.stop_button = tk.Button(master, text="Stop Recording", command=self.stop_recording, state=tk.DISABLED)
+        self.stop_button.pack(pady=5)
         
         self.save_button = tk.Button(master, text="Save Recording", command = self.save_recording, state=tk.DISABLED)
         self.save_button.pack(pady=5)
@@ -37,21 +42,32 @@ class VoiceRecorder:
         self.play_button.pack(pady=5)
         
     def start_recording(self):
-        self.label.config(text="Recording...")
-        self.record_button.config(state=tk.DISABLED)
-        threading.Thread(target=self.record_audio).start()
+        self.label.config(text="Recording... Press 'Stop' to finish.")
+        self.is_recording = True
+        self.recording = []
         
-    def record_audio(self):
-        try: 
-            self.recording = sd.rec(int(self.duration * self.freq), samplerate=self.freq, channels=self.channels)
-            sd.wait()
-            self.label.config(text="Recording finished.")
-            self.save_button.config(state=tk.NORMAL)
-            self.play_button.config(state=tk.NORMAL)
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
-            
-        self.record_button.config(state=tk.NORMAL)
+        self.start_button.config(state=tk.DISABLED)
+        self.stop_button.config(state=tk.NORMAL)
+        
+        def callback(indata, frames, time, status):
+            if self.is_recording:
+                self.recording.append(indata.copy())
+        
+        self.stream = sd.InputStream(samplerate=self.freq, channels=self.channels, callback=callback)
+        self.stream.start()
+        
+    def stop_recording(self):
+        self.is_recording = False 
+        self.stream.stop()
+        self.stream.close()
+        
+        self.start_button.config(state=tk.NORMAL)
+        self.stop_button.config(state=tk.DISABLED)
+        self.play_button.config(state=tk.NORMAL)
+        self.save_button.config(state=tk.NORMAL)
+        self.label.config(text="Recording stopped.")
+        
+        self.recording = np.concatenate(self.recording)
         
     def save_recording(self):
         try:
@@ -59,8 +75,8 @@ class VoiceRecorder:
                 # Convert float32 to int16
                 recording_int16 = np.int16(self.recording * 32767)
                 
-                write("recording_gui_scipy.wav", self.freq, recording_int16)
-                wv.write("recording_gui_wavio.wav", self.recording, self.freq, sampwidth=2)
+                write("manual_recording_scipy.wav", self.freq, recording_int16)
+                wv.write("manual_recording_wavio.wav", self.recording, self.freq, sampwidth=2)
                 messagebox.showinfo("Success", "Recording saved successfully.")
             else:
                 messagebox.showwarning("Warning", "No recording to save.")
@@ -68,7 +84,7 @@ class VoiceRecorder:
             messagebox.showerror("Error", str(e))
             
     def play_recording(self):
-        if self.recording is not None:
+        if self.recording is not None and len(self.recording) > 0:
             sd.play(self.recording, self.freq)
         else:
             messagebox.showwarning("Warning", "No recording to play.")
