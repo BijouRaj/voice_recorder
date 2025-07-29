@@ -4,44 +4,47 @@
 import sounddevice as sd 
 
 # saves recorded audio in file format
-from scipy.io.wavfile import write
-import wavio as wv 
+from scipy.io.wavfile import write # saves using SciPy
+import wavio as wv # alternate WAV writer, supports floating-point arrays
 
 # gui libraries
-import tkinter as tk 
+import tkinter as tk # GUI toolkit
 from tkinter import messagebox 
-import threading 
-import numpy as np 
-import time 
-import matplotlib.pyplot as plt 
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import threading # allows recording/playback timers without freezing UI
+import numpy as np # stores and manipulates audio signals
+import time # time, duh, measures durations and animations
+import matplotlib.pyplot as plt # for plotting waveform
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg # embeds waveforms into Tkinter GUI
 
 # defined class for voice recorder
 class VoiceRecorder:
     def __init__(self, master):
+        # master is main Tkinter window
         self.master = master 
         master.title("Voice Recorder")
         
-        self.freq = 44100
-        #self.duration = 5
-        self.channels = 2
-        self.recording = []
+        # initializes state variables
+        self.freq = 44100 # sample rate
+        self.channels = 2 # stereo channels
+        self.recording = [] # audio buffer
         self.is_recording = False 
         self.stream = None 
         self.start_time = None 
         self.timer_thread = None 
         self.canvas = None 
         
-        # UI components
+        # UI components, creates interface
         self.label = tk.Label(master, text="Click 'Start' to start recording.")
         self.label.pack(pady=10)
         
-        self.filename_label = tk.Label(master, text="Filename (withou .wav):")
+        # input field for filename
+        self.filename_label = tk.Label(master, text="Filename (without .wav):")
         self.filename_label.pack()
         self.filename_entry = tk.Entry(master, width=30)
         self.filename_entry.insert(0, "my_recording")
         self.filename_entry.pack(pady=5)
         
+        # buttons
         self.start_button = tk.Button(master, text="Start Recording", command=self.start_recording)
         self.start_button.pack(pady=5)
         
@@ -54,9 +57,11 @@ class VoiceRecorder:
         self.play_button = tk.Button(master, text="Play Recording", command=self.play_recording, state=tk.DISABLED)
         self.play_button.pack(pady=5)
         
+        # frame to display waveform
         self.plot_frame = tk.Frame(master)
         self.plot_frame.pack(pady=10)
         
+    # function for starting recording
     def start_recording(self):
         self.label.config(text="Recording... 0s")
         self.is_recording = True
@@ -102,7 +107,8 @@ class VoiceRecorder:
         for widget in self.plot_frame.winfo_children():
             widget.destroy()
             
-        fig, ax = plt.subplots(figsize=(6, 2), dpi=100)
+        self.fig, self.ax = plt.subplots(figsize=(6, 2), dpi=100)
+        ax = self.ax
         if self.channels == 1:
             ax.plot(self.recording, color='blue')
         else:
@@ -116,9 +122,9 @@ class VoiceRecorder:
         ax.set_xlim(0, len(self.recording))
         ax.set_ylim(-1.0, 1.0)
         
-        fig.tight_layout()
+        self.fig.tight_layout()
         
-        self.canvas = FigureCanvasTkAgg(fig, master=self.plot_frame)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
         self.canvas.draw()
         self.canvas.get_tk_widget().pack()
         
@@ -128,8 +134,12 @@ class VoiceRecorder:
                 # Convert float32 to int16
                 recording_int16 = np.int16(self.recording * 32767)
                 
-                write("manual_recording_scipy.wav", self.freq, recording_int16)
-                wv.write("manual_recording_wavio.wav", self.recording, self.freq, sampwidth=2)
+                filename = self.filename_entry.get().strip()
+                if not filename:
+                    filename = "my_recording"
+                
+                write(f"{filename}_scipy.wav", self.freq, recording_int16)
+                wv.write(f"{filename}_wavio.wav", self.recording, self.freq, sampwidth=2)
                 messagebox.showinfo("Success", "Recording saved successfully.")
             else:
                 messagebox.showwarning("Warning", "No recording to save.")
@@ -138,6 +148,45 @@ class VoiceRecorder:
             
     def play_recording(self):
         if self.recording is not None and len(self.recording) > 0:
+            self.play_button.config(state=tk.DISABLED)
+            self.label.config(text="Playing...")
+            
+            duration = len(self.recording) / self.freq 
+            total_samples = len(self.recording)
+            scroll_window = self.freq * 2 
+            
+            if hasattr(self, 'cursor_line') and self.cursor_line:
+                self.cursor_line.remove()
+                self.cursor_line = None
+                
+            self.cursor_line = self.ax.axvline(x=0, color='red')
+            self.canvas.draw()
+            
+            def update_cursor():
+                start_time = time.time()
+                while True:
+                    elapsed = time.time() - start_time 
+                    sample_index = int(elapsed * self.freq)
+                    
+                    if sample_index >= total_samples:
+                        break 
+                        
+                    self.cursor_line.set_xdata([sample_index])
+                    
+                    # scroll window with cursor
+                    if sample_index > scroll_window:
+                        self.ax.set_xlim(sample_index - scroll_window, sample_index + scroll_window)
+                    else:
+                        self.ax.set_xlim(0, scroll_window * 2)
+                        
+                    self.canvas.draw_idle()
+                    time.sleep(0.02)
+                    
+                self.label.config(text="Playback finished.")
+                self.play_button.config(state=tk.NORMAL)
+                
+            # playback audio and animate cursor in parallel
+            threading.Thread(target=update_cursor).start()
             sd.play(self.recording, self.freq)
         else:
             messagebox.showwarning("Warning", "No recording to play.")
