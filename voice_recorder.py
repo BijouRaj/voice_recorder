@@ -12,6 +12,9 @@ import tkinter as tk
 from tkinter import messagebox 
 import threading 
 import numpy as np 
+import time 
+import matplotlib.pyplot as plt 
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 # defined class for voice recorder
 class VoiceRecorder:
@@ -25,9 +28,19 @@ class VoiceRecorder:
         self.recording = []
         self.is_recording = False 
         self.stream = None 
+        self.start_time = None 
+        self.timer_thread = None 
+        self.canvas = None 
         
+        # UI components
         self.label = tk.Label(master, text="Click 'Start' to start recording.")
         self.label.pack(pady=10)
+        
+        self.filename_label = tk.Label(master, text="Filename (withou .wav):")
+        self.filename_label.pack()
+        self.filename_entry = tk.Entry(master, width=30)
+        self.filename_entry.insert(0, "my_recording")
+        self.filename_entry.pack(pady=5)
         
         self.start_button = tk.Button(master, text="Start Recording", command=self.start_recording)
         self.start_button.pack(pady=5)
@@ -41,10 +54,14 @@ class VoiceRecorder:
         self.play_button = tk.Button(master, text="Play Recording", command=self.play_recording, state=tk.DISABLED)
         self.play_button.pack(pady=5)
         
+        self.plot_frame = tk.Frame(master)
+        self.plot_frame.pack(pady=10)
+        
     def start_recording(self):
-        self.label.config(text="Recording... Press 'Stop' to finish.")
+        self.label.config(text="Recording... 0s")
         self.is_recording = True
         self.recording = []
+        self.start_time = time.time()
         
         self.start_button.config(state=tk.DISABLED)
         self.stop_button.config(state=tk.NORMAL)
@@ -55,6 +72,15 @@ class VoiceRecorder:
         
         self.stream = sd.InputStream(samplerate=self.freq, channels=self.channels, callback=callback)
         self.stream.start()
+        
+        self.timer_thread = threading.Thread(target = self.update_timer)
+        self.timer_thread.start()
+        
+    def update_timer(self):
+        while self.is_recording:
+            elapsed = int(time.time() - self.start_time)
+            self.label.config(text=f"Recording... {elapsed}s")
+            time.sleep(1)
         
     def stop_recording(self):
         self.is_recording = False 
@@ -68,6 +94,33 @@ class VoiceRecorder:
         self.label.config(text="Recording stopped.")
         
         self.recording = np.concatenate(self.recording)
+        
+        self.plot_waveform()
+        
+    def plot_waveform(self):
+        # Remove existing waveform
+        for widget in self.plot_frame.winfo_children():
+            widget.destroy()
+            
+        fig, ax = plt.subplots(figsize=(6, 2), dpi=100)
+        if self.channels == 1:
+            ax.plot(self.recording, color='blue')
+        else:
+            ax.plot(self.recording[:, 0], label="Left", color='blue')
+            ax.plot(self.recording[:, 1], label="Right", color='red')
+            ax.legend(loc='upper right')
+            
+        ax.set_title("Waveform Preview")
+        ax.set_xlabel("Samples")
+        ax.set_ylabel("Amplitude")
+        ax.set_xlim(0, len(self.recording))
+        ax.set_ylim(-1.0, 1.0)
+        
+        fig.tight_layout()
+        
+        self.canvas = FigureCanvasTkAgg(fig, master=self.plot_frame)
+        self.canvas.draw()
+        self.canvas.get_tk_widget().pack()
         
     def save_recording(self):
         try:
